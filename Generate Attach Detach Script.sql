@@ -35,7 +35,13 @@ BEGIN
     WHERE database_id = DB_ID(@DatabaseName);
 
     -- Initialize the attach script
-    SET @AttachScript = 'CREATE DATABASE [' + @DatabaseName + '] ON ';
+    SET @AttachScript = '
+USE master;
+GO
+
+-- Attach the database
+
+	CREATE DATABASE [' + @DatabaseName + '] ON ';
 
     -- Append file paths to the attach script
     DECLARE file_cursor CURSOR FOR
@@ -56,7 +62,9 @@ BEGIN
     DEALLOCATE file_cursor;
 
     -- Remove the last comma and add FOR ATTACH
-    SET @AttachScript = LEFT(@AttachScript, LEN(@AttachScript) - 1) + CHAR(13) + 'FOR ATTACH;';
+    SET @AttachScript = LEFT(@AttachScript, LEN(@AttachScript) - 1) + CHAR(13) + 'FOR ATTACH;
+	
+	';
 
     -- Generate the detach script
     SET @DetachScript = '
