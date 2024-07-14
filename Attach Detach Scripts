@@ -1,8 +1,10 @@
 USE master;
 GO
+-- exec usp_GenerateDetachAttachScripts 'stackoverflow2013'
 
 -- Create the stored procedure
-CREATE PROCEDURE usp_GenerateDetachAttachScripts
+CREATE or Alter PROCEDURE usp_GenerateDetachAttachScripts
+   
     @DatabaseName NVARCHAR(128)
 AS
 BEGIN
@@ -15,44 +17,46 @@ BEGIN
         RETURN;
     END
 
-    DECLARE @DataFilePath NVARCHAR(260);
-    DECLARE @LogFilePath NVARCHAR(260);
-    DECLARE @AttachScript NVARCHAR(MAX);
-    DECLARE @DetachScript NVARCHAR(MAX);
-
-    -- Create a temporary table to store the file paths
-    IF OBJECT_ID('tempdb..#DatabaseFiles') IS NOT NULL
-        DROP TABLE #DatabaseFiles;
-
-    CREATE TABLE #DatabaseFiles (
+    DECLARE @FilePaths TABLE (
         LogicalName NVARCHAR(128),
         PhysicalName NVARCHAR(260),
         TypeDesc NVARCHAR(60)
     );
 
-    -- Insert the file paths into the temporary table
-    INSERT INTO #DatabaseFiles (LogicalName, PhysicalName, TypeDesc)
+    DECLARE @FilePath NVARCHAR(260);
+    DECLARE @FileType NVARCHAR(60);
+    DECLARE @AttachScript NVARCHAR(MAX);
+    DECLARE @DetachScript NVARCHAR(MAX);
+
+    -- Insert the file paths into the table
+    INSERT INTO @FilePaths (LogicalName, PhysicalName, TypeDesc)
     SELECT name AS LogicalName, physical_name AS PhysicalName, type_desc AS TypeDesc
     FROM sys.master_files
     WHERE database_id = DB_ID(@DatabaseName);
 
-    -- Retrieve the data file path
-    SELECT @DataFilePath = PhysicalName
-    FROM #DatabaseFiles
-    WHERE TypeDesc = 'ROWS';
+    -- Initialize the attach script
+    SET @AttachScript = 'CREATE DATABASE [' + @DatabaseName + '] ON ';
 
-    -- Retrieve the log file path
-    SELECT @LogFilePath = PhysicalName
-    FROM #DatabaseFiles
-    WHERE TypeDesc = 'LOG';
+    -- Append file paths to the attach script
+    DECLARE file_cursor CURSOR FOR
+    SELECT PhysicalName, TypeDesc
+    FROM @FilePaths;
 
-    -- Generate the attach script
-    SET @AttachScript = '
-CREATE DATABASE [' + @DatabaseName + '] ON 
-(FILENAME = ''' + @DataFilePath + '''),
-(FILENAME = ''' + @LogFilePath + ''')
-FOR ATTACH;
-';
+    OPEN file_cursor;
+
+    FETCH NEXT FROM file_cursor INTO @FilePath, @FileType;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @AttachScript = @AttachScript + CHAR(13) + '(FILENAME = ''' + @FilePath + '''),';
+        FETCH NEXT FROM file_cursor INTO @FilePath, @FileType;
+    END;
+
+    CLOSE file_cursor;
+    DEALLOCATE file_cursor;
+
+    -- Remove the last comma and add FOR ATTACH
+    SET @AttachScript = LEFT(@AttachScript, LEN(@AttachScript) - 1) + CHAR(13) + 'FOR ATTACH;';
 
     -- Generate the detach script
     SET @DetachScript = '
